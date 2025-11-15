@@ -1,5 +1,6 @@
 using UnityEngine;
 
+[RequireComponent(typeof(AutoPlayerMove))]
 public class PlayerMovement : MonoBehaviour
 {
     [SerializeField] private float moveSpeed = 5f;
@@ -21,18 +22,25 @@ public class PlayerMovement : MonoBehaviour
     {
         _movement.Set(InputManager.Movement.x, InputManager.Movement.y);
 
+        
+        
         _rb2d.linearVelocity = _movement * moveSpeed;
         _animator.SetFloat(_MOVESPEEDX, _movement.x);
         _animator.SetFloat(_MOVESPEEDY, _movement.y);
-        SpriteStatus();
+        if (!GetComponent<AutoPlayerMove>().active)
+        {
+            bool isMoving = Mathf.Abs(_movement.x) > 0f || Mathf.Abs(_movement.y) > 0f;
+            _animator.SetBool("isMoving", isMoving);
+            SpriteStatus();
+        }
     }
 
-    private void OnCollisionEnter2D(Collision2D collision)
+    void OnTriggerEnter2D(Collider2D collision)
     {
-        if (collision.gameObject.tag == "NPC")
+        if (collision.CompareTag("NPC"))
         {
-            _animator.SetTrigger("touch");
-        }
+            //_animator.SetTrigger("touch");
+        } 
     }
 
     private void SpriteStatus() //Controlar posição do sprite
