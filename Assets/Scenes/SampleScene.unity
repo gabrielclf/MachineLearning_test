@@ -5079,7 +5079,7 @@ MonoBehaviour:
   animator: {fileID: 875768039}
   spriteRenderer: {fileID: 875768040}
   player: {fileID: 763477896}
-  moveSpeed: 5
+  moveSpeed: 6
   maxMemorySize: 2000
   batchSize: 128
   trainEpochsPerRound: 3
@@ -5099,8 +5099,11 @@ MonoBehaviour:
   behavior: 1
   ToAvoid: {fileID: 763477899}
   decelerationFactor: 0.75
-  evadeRange: 4
-  moveSpeed: 5
+  evadeRange: 5
+  _raycastDistance: 3
+  _avoidLayer:
+    serializedVersion: 2
+    m_Bits: 8
 --- !u!1 &1039603637
 GameObject:
   m_ObjectHideFlags: 0
