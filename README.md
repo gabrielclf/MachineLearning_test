@@ -1,3 +1,7 @@
 Prova 02 - IA
 
-TODO - Everything
+Estudantes:
+
+Álvaro Gabriel
+
+Gabriel Fonseca
