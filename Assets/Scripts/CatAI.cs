@@ -4,28 +4,42 @@ using UnityEngine;
 [RequireComponent(typeof(Rigidbody2D))]
 [RequireComponent(typeof(Animator))]
 [RequireComponent(typeof(SpriteRenderer))]
+[RequireComponent(typeof(SteeringBehaviour))]
 public class CatAI : MonoBehaviour
 {
+    [Header("References")]
     [SerializeField] private Animator animator;
     [SerializeField] private SpriteRenderer spriteRenderer;
     public GameObject player;
+    public SteeringBehaviour steering;
+
+    [Header("Movement")]
     public float moveSpeed = 5f;
+    [Tooltip("quanto mais alto, mais 'instantâneo' é o ajuste da velocidade")]
+    public float acceleration = 20f;
 
     private Rigidbody2D rb;
 
-    // Rede neural pra movimentação:
+    // Rede neural
     static NeuralNet neuralNet;
     List<DataSet> roundData = new();
     bool trainedAtLeastOnce = false;
     Vector2 lastPlayerPos;
 
     // Replay buffer (memória de experiência)
-    [Header("Replay / Training")]
+    [Header("Training")]
     public int maxMemorySize = 2000; // quantos exemplos memorizar
     public int batchSize = 128; // quantos exemplos usar por treino
-    public int trainEpochsPerRound = 20; // quantas épocas por rodada de treino
-    [Range(0.005f, 0.3f)] public float onlineLearnRate = 0.05f; // taxa de aprendizado para treinamento online (ajustável)
+    [Range(1, 10)] public int trainEpochsPerRound = 3; // quantas épocas por rodada de treino
+    [Range(0.005f, 0.3f)] public float onlineLearnRate = 0.05f; // taxa de aprendizado; Quanto menor, mais lento ele aprende, mas de forma mais precisa.
     List<DataSet> replayBuffer = new();
+
+    //Movimento interno
+    private Vector2 networkDesiredDir = Vector2.zero; // calculado no CalculateDesiredDir()
+    private Vector2 appliedVelocity = Vector2.zero; // usado no FixedUpdate()
+
+    // quanto peso dar à avoidance na hora de montar a target direction pra treinar
+    [Range(0f, 3f)] public float avoidanceInfluenceOnTarget = 1.0f;
 
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Awake()
@@ -34,8 +48,9 @@ public class CatAI : MonoBehaviour
         animator = GetComponent<Animator>();
         spriteRenderer = GetComponent<SpriteRenderer>();
         player = GameObject.FindWithTag("Player");
+        steering = GetComponent<SteeringBehaviour>();
 
-        if (neuralNet == null) neuralNet = new NeuralNet(4, 8, 2, 2, onlineLearnRate, 0.9);
+        if (neuralNet == null) neuralNet = new NeuralNet(7, 12, 2, 2, onlineLearnRate, 0.9);
         else neuralNet.LearnRate = onlineLearnRate;
 
         lastPlayerPos = player.transform.position;
@@ -44,11 +59,16 @@ public class CatAI : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
+        if (player == null) return;
         Vector2 playerPos = player.transform.position;
         Vector2 diff = playerPos - (Vector2)transform.position;
-
         Vector2 playerVel = (playerPos - lastPlayerPos) / Time.deltaTime;
         lastPlayerPos = playerPos;
+
+        Vector2 avoidance = steering.GetAvoidanceValue();
+        float avoidWeight = Mathf.Max(steering.avoidanceWeight, 0.0001f);
+        Vector2 avoidanceNormalized = avoidance / avoidWeight;
+        float avoidanceMagnitude = Mathf.Clamp01(avoidance.magnitude / avoidWeight);
         
         double[] input =
         {
@@ -56,6 +76,9 @@ public class CatAI : MonoBehaviour
             Mathf.Clamp(diff.y / 10f, -1, 1),
             Mathf.Clamp(playerVel.x / 10f, -1, 1),
             Mathf.Clamp(playerVel.y / 10f, -1, 1),
+            Mathf.Clamp(avoidanceNormalized.x, -1f, 1f),
+            Mathf.Clamp(avoidanceNormalized.y, -1f, 1f),
+            Mathf.Clamp(avoidanceMagnitude, 0.0f, 1.0f),
         };
 
         if (!trainedAtLeastOnce)
@@ -64,21 +87,62 @@ public class CatAI : MonoBehaviour
             NewRound();
         } else
         {
-            SmartMovement(input);
+            CalculateDesiredDir(input);
         }
 
-        bool isMoving = Mathf.Abs(rb.linearVelocity.x) > 0f || Mathf.Abs(rb.linearVelocity.y) > 0f;
+        bool isMoving = rb.linearVelocity.sqrMagnitude > 0.0001f;
         animator.SetBool("isMoving", isMoving);
         if(rb.linearVelocity.x < 0) spriteRenderer.flipX = true;
         else spriteRenderer.flipX = false;
 
-        CollectRoundData(input, diff);
+        CollectRoundData(input, diff, avoidanceNormalized, avoidanceMagnitude);
     }
 
-    void CollectRoundData(double[] input, Vector2 diff)
+    void FixedUpdate()
     {
-        double targetX = diff.x > 0 ? -1.0 : 1.0;
-        double targetY = diff.y > 0 ? -1.0 : 1.0;
+        // combina network output com steering behaviour
+        // a rede já tenta evitar, mas ainda podemos combinar com steering caso queira redundância
+        Vector2 net = networkDesiredDir;
+        Vector2 avoidance = steering.GetAvoidanceValue();
+        Vector2 finalDir;
+//
+        //if (avoidance.sqrMagnitude > 0.0001f)
+        //{
+        //    // o cálculo abaixo prioriza avoidance, mas mistura com a rede.
+        //    float avoidPriority = Mathf.Clamp01(avoidance.magnitude / steering.avoidanceWeight);
+        //    finalDir = Vector2.Lerp(net, avoidance.normalized, avoidPriority);
+        //}
+        //else
+        //{
+        //    finalDir = net;
+        //}
+
+        finalDir = net;
+
+        if (finalDir.sqrMagnitude < 0.0001f)
+        {
+            appliedVelocity = Vector2.MoveTowards(appliedVelocity, Vector2.zero, acceleration * Time.fixedDeltaTime);
+        }
+        else
+        {
+            Vector2 targetVel = finalDir.normalized * moveSpeed;
+            appliedVelocity = Vector2.MoveTowards(appliedVelocity, targetVel, acceleration * Time.fixedDeltaTime);
+        }
+
+        rb.linearVelocity = appliedVelocity;
+    }
+
+    void CollectRoundData(double[] input, Vector2 diff, Vector2 avoidanceNormalized, float avoidanceMagnitude)
+    {
+        // direção oposta ao diff: fugir do player
+        Vector2 fleeDir = (-diff).normalized;
+
+        // combina flee + avoidance pra criar uma direção pra treinar
+        Vector2 avoidanceComponent = avoidanceNormalized * avoidanceInfluenceOnTarget;
+        Vector2 desired = (fleeDir + avoidanceComponent).normalized;
+
+        double targetX = Mathf.Clamp(desired.x, -1f, 1f);
+        double targetY = Mathf.Clamp(desired.y, -1f, 1f);
 
         roundData.Add(new DataSet(input, new double[]
         {
@@ -103,51 +167,29 @@ public class CatAI : MonoBehaviour
 
     void TrainRound()
     {
-        // 1) adiciona roundData ao replayBuffer
+        // adiciona roundData ao replayBuffer
         foreach (var ds in roundData)
         {
             replayBuffer.Add(ds);
         }
 
-        // 2) limita tamanho do replayBuffer (FIFO)
+        // limita tamanho do replayBuffer (FIFO)
         if (replayBuffer.Count > maxMemorySize)
         {
             int overflow = replayBuffer.Count - maxMemorySize;
             replayBuffer.RemoveRange(0, overflow);
         }
 
-        // 3) escolhe batch
+        // escolhe batch aleatoriamente
         List<DataSet> batch;
         if (replayBuffer.Count <= batchSize) batch = new List<DataSet>(replayBuffer);
         else batch = SampleRandom(replayBuffer, batchSize);
 
-        // Diagnóstico: calcula erro médio antes do treino
-        float beforeErr = CalculateBatchError(batch);
-
-        // 4) treina por algumas épocas (use poucas épocas por round; 3-8 costuma ser bom)
+        // 4) treina por algumas épocas
         neuralNet.LearnRate = onlineLearnRate;
-        int epochs = Mathf.Clamp(trainEpochsPerRound, 1, 10); // protege contra valores muito altos
-        neuralNet.Train(batch, epochs);
-
-        float afterErr = CalculateBatchError(batch);
-        Debug.Log($"[TrainRound] batch {batch.Count} epochs {epochs} LR {neuralNet.LearnRate:F4}  err before {beforeErr:F4} after {afterErr:F4}");
+        neuralNet.Train(batch, trainEpochsPerRound);
 
         trainedAtLeastOnce = true;
-    }
-
-    float CalculateBatchError(List<DataSet> batch)
-    {
-        if (batch == null || batch.Count == 0) return 0f;
-        double sum = 0.0;
-        foreach (var ds in batch)
-        {
-            var output = neuralNet.Compute(ds.Values);
-            // soma erro absoluto por saída
-            sum += System.Math.Abs(output[0] - ds.Targets[0]);
-            sum += System.Math.Abs(output[1] - ds.Targets[1]);
-        }
-        // retorna erro médio por saída
-        return (float)(sum / (batch.Count * 2));
     }
 
     List<DataSet> SampleRandom(List<DataSet> source, int n)
@@ -178,22 +220,15 @@ public class CatAI : MonoBehaviour
         lastPlayerPos = player.transform.position;
     }
 
-    void SmartMovement(double[] input)
+    void CalculateDesiredDir(double[] input)
     {
+        // calcula direção desejada
         double[] output = neuralNet.Compute(input);
         
-        // Mapeia saída 0..1 pra -1..1 (caso a rede esteja usando sigmoid)
         float ox = (float)output[0];
         float oy = (float)output[1];
 
-        // Se a rede já usa tanh, ela já está no range certo — mas esse clamp protege de valores bizarros
-        ox = Mathf.Clamp(ox, -1f, 1f);
-        oy = Mathf.Clamp(oy, -1f, 1f);
-
-        Vector2 fleeDirection = new(ox, oy);
-
-        if (fleeDirection.sqrMagnitude < 0.01f) fleeDirection = Vector2.zero;
-
-        rb.linearVelocity = fleeDirection.normalized * moveSpeed;
+        networkDesiredDir = new Vector2(ox, oy);
+        if (networkDesiredDir.sqrMagnitude < 0.0001f) networkDesiredDir = Vector2.zero;
     }
 }

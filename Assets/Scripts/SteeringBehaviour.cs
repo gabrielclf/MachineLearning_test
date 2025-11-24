@@ -6,10 +6,22 @@ enum Behavior { Idle, Evade }
 enum State { Idle, Evade }
 
 [RequireComponent(typeof(Rigidbody2D))]
-
-public static class Directions
+public class SteeringBehaviour : MonoBehaviour
 {
-    public static List<Vector2> eightDirections = new List<Vector2>
+    [Header("Wall Avoidance")]
+    [Tooltip("Distância dos raycasts para detectar paredes")]
+    public float raycastDistance = 1.8f;
+    [Tooltip("Layers que representam paredes/obstáculos")]
+    public LayerMask avoidLayer;
+    [Tooltip("Peso multiplicador da direção de evasão (quanto maior, mais prioridade)")]
+    [Range(0f, 3f)]
+    public float avoidanceWeight = 1.5f;
+    [Tooltip("Raio para CircleCast (opcional, 0 usa Raycast simples)")]
+    public float castRadius = 0f;
+    [Tooltip("Se true, vai desenhar gizmos para debug")]
+    public bool debugDraw = true;
+
+    private static readonly List<Vector2> eightDirections = new()
     {//Direções cardeais e diagonais da movimentação do npc
         new Vector2(0,1).normalized,
         new Vector2(1,1).normalized,
@@ -20,115 +32,43 @@ public static class Directions
         new Vector2(-1,0).normalized,
         new Vector2(-1,1).normalized
     };
-}
-public class SteeringBehaviour : MonoBehaviour
-{
-    [Header("Evade Behaviour")]
-    [SerializeField] Behavior behavior = Behavior.Evade;
-    [SerializeField] Transform ToAvoid = null;
-    [SerializeField, Range(0.1f, 0.99f)] float decelerationFactor = 0.75f;
-    [SerializeField] float evadeRange = 5f;
-    private float moveSpeed = 5f;
 
-    [Header("Wall Avoid Behaviour")]
-    [SerializeField] private float _raycastDistance = 2.2f;
-    [SerializeField] private LayerMask _avoidLayer;
-    private bool _nearWall;
-
-    State state = State.Idle;
-    Rigidbody2D physics;
-    RaycastHit2D pointHit;
-    void FixedUpdate()
+    public Vector2 GetAvoidanceValue()
     {
-        if (ToAvoid != null)
-        {
-            for (int i = 0; i < 8; i++)
-            {
+        Vector2 origin = transform.position;
+        Vector2 combinedAway = Vector2.zero;
+        bool found = false;
 
-                _nearWall = Physics2D.Raycast(transform.position, Directions.eightDirections[i], Vector2.Distance(Directions.eightDirections[i] * _raycastDistance, transform.position), _avoidLayer);
-                pointHit = Physics2D.Raycast(transform.position, Directions.eightDirections[i], Vector2.Distance(Directions.eightDirections[i] * _raycastDistance, transform.position), _avoidLayer);
-                Debug.DrawRay(transform.position, Directions.eightDirections[i] * _raycastDistance, Color.greenYellow);
-            }
-            switch (behavior)
+        for (int i = 0; i < eightDirections.Count; i++)
+        {
+            Vector2 dir = eightDirections[i];
+            RaycastHit2D hit;
+            if (castRadius > 0f)
+                hit = Physics2D.CircleCast(origin, castRadius, dir, raycastDistance, avoidLayer);
+            else
+                hit = Physics2D.Raycast(origin, dir, raycastDistance, avoidLayer);
+
+            if (debugDraw)
             {
-                case Behavior.Idle: IdleBehavior(); break;
-                case Behavior.Evade: EvadeBehavior(); break;
+                Debug.DrawRay(origin, dir * raycastDistance, hit.collider != null ? Color.red : Color.green, 0.1f);
+            }
+
+            if (hit.collider != null)
+            {
+                // vetor que aponta do ponto de contato para o centro (ou seja, para fora da parede)
+                Vector2 away = origin - hit.point;
+                float distanceFactor = Mathf.Clamp01((raycastDistance - hit.distance) / raycastDistance); // mais perto => maior força
+                if (away.sqrMagnitude > 0.0001f)
+                    combinedAway += away.normalized * distanceFactor;
+                else
+                    combinedAway += -dir * distanceFactor; // fallback
+                found = true;
             }
         }
-        physics.linearVelocity = Vector2.ClampMagnitude(physics.linearVelocity, moveSpeed);
-    }
 
-    void IdleBehavior()
-    {
-        physics.linearVelocity = physics.linearVelocity * decelerationFactor;
-    }
-    void EvadeBehavior()
-    {
-        //Fugindo do Player
-        Vector2 delta = ToAvoid.position - transform.position;
-        Vector2 steering = delta.normalized * moveSpeed - physics.linearVelocity;
-        
+        if (!found) return Vector2.zero;
 
-        if (_nearWall)
-        { //Em teoria, se afastar da parede que o npc detectou
-            //Debug.Log("Wall hit");
-            Vector2 hitWall = pointHit.point;
-            delta = (Vector2)transform.position - hitWall;
-        }
-        else
-        {
-            return;
-        }
-        float distance = delta.magnitude;
-
-        if (distance > evadeRange && !_nearWall)
-        {
-            state = State.Idle;
-        }
-        else
-        {
-            state = State.Evade;
-        }
-
-        switch (state)
-        {
-            case State.Idle:
-                IdleBehavior();
-                break;
-            case State.Evade:
-                physics.linearVelocity -= steering * Time.fixedDeltaTime;
-                break;
-        }
-    }
-
-    void Awake()
-    {
-        physics = GetComponent<Rigidbody2D>();
-    }
-
-    void OnDrawGizmos()
-    {
-        if (ToAvoid == null)
-        {
-            return;
-        }
-
-        switch (behavior)
-        {
-            case Behavior.Idle:
-                break;
-            case Behavior.Evade:
-                Gizmos.color = Color.red;
-                Gizmos.DrawWireSphere(transform.position, evadeRange);
-                for (int i = 0; i < 8; i++)
-                {
-                    Gizmos.DrawRay(transform.position, Directions.eightDirections[i] * _raycastDistance);
-                }
-
-                break;
-        }
-
-        Gizmos.color = Color.gray;
-        Gizmos.DrawLine(transform.position, ToAvoid.position);
+        // normaliza e aplica peso
+        return combinedAway.normalized * avoidanceWeight;
     }
 }
