@@ -1,6 +1,10 @@
 using UnityEngine;
 
 [RequireComponent(typeof(AutoPlayerMove))]
+[RequireComponent(typeof(HealthSystem))]
+[RequireComponent(typeof(SpriteRenderer))]
+[RequireComponent(typeof(Animator))]
+[RequireComponent(typeof(Rigidbody2D))]
 public class PlayerMovement : MonoBehaviour
 {
     [SerializeField] private float moveSpeed = 5f;
@@ -8,6 +12,7 @@ public class PlayerMovement : MonoBehaviour
     private Rigidbody2D _rb2d;
     private Animator _animator;
     private SpriteRenderer _spriteRender;
+    private HealthSystem health;
     private const string _MOVESPEEDX = "movSpeedX";
     private const string _MOVESPEEDY = "movSpeedY";
 
@@ -16,6 +21,7 @@ public class PlayerMovement : MonoBehaviour
         _rb2d = GetComponent<Rigidbody2D>();
         _animator = GetComponent<Animator>();
         _spriteRender = GetComponent<SpriteRenderer>();
+        health = GetComponent<HealthSystem>();
     }
 
     private void Update()
@@ -39,7 +45,7 @@ public class PlayerMovement : MonoBehaviour
     {
         if (collision.CompareTag("NPC"))
         {
-            //_animator.SetTrigger("touch");
+            if(health.isActiveAndEnabled) health.TakeDamage(1);
         } 
     }
 

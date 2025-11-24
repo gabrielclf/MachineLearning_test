@@ -95,29 +95,26 @@ public class CatAI : MonoBehaviour
         if(rb.linearVelocity.x < 0) spriteRenderer.flipX = true;
         else spriteRenderer.flipX = false;
 
-        CollectRoundData(input, diff, avoidanceNormalized, avoidanceMagnitude);
+        CollectRoundData(input, diff, avoidanceNormalized);
     }
 
     void FixedUpdate()
     {
         // combina network output com steering behaviour
-        // a rede já tenta evitar, mas ainda podemos combinar com steering caso queira redundância
         Vector2 net = networkDesiredDir;
         Vector2 avoidance = steering.GetAvoidanceValue();
         Vector2 finalDir;
-//
-        //if (avoidance.sqrMagnitude > 0.0001f)
-        //{
-        //    // o cálculo abaixo prioriza avoidance, mas mistura com a rede.
-        //    float avoidPriority = Mathf.Clamp01(avoidance.magnitude / steering.avoidanceWeight);
-        //    finalDir = Vector2.Lerp(net, avoidance.normalized, avoidPriority);
-        //}
-        //else
-        //{
-        //    finalDir = net;
-        //}
 
-        finalDir = net;
+        if (avoidance.sqrMagnitude > 0.0001f)
+        {
+            // o cálculo abaixo prioriza avoidance, mas mistura com a rede.
+            float avoidPriority = Mathf.Clamp01(avoidance.magnitude / steering.avoidanceWeight);
+            finalDir = Vector2.Lerp(net, avoidance.normalized, avoidPriority);
+        }
+        else
+        {
+            finalDir = net;
+        }
 
         if (finalDir.sqrMagnitude < 0.0001f)
         {
@@ -132,7 +129,7 @@ public class CatAI : MonoBehaviour
         rb.linearVelocity = appliedVelocity;
     }
 
-    void CollectRoundData(double[] input, Vector2 diff, Vector2 avoidanceNormalized, float avoidanceMagnitude)
+    void CollectRoundData(double[] input, Vector2 diff, Vector2 avoidanceNormalized)
     {
         // direção oposta ao diff: fugir do player
         Vector2 fleeDir = (-diff).normalized;

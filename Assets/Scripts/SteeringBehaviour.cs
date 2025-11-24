@@ -16,8 +16,6 @@ public class SteeringBehaviour : MonoBehaviour
     [Tooltip("Peso multiplicador da direção de evasão (quanto maior, mais prioridade)")]
     [Range(0f, 3f)]
     public float avoidanceWeight = 1.5f;
-    [Tooltip("Raio para CircleCast (opcional, 0 usa Raycast simples)")]
-    public float castRadius = 0f;
     [Tooltip("Se true, vai desenhar gizmos para debug")]
     public bool debugDraw = true;
 
@@ -43,14 +41,11 @@ public class SteeringBehaviour : MonoBehaviour
         {
             Vector2 dir = eightDirections[i];
             RaycastHit2D hit;
-            if (castRadius > 0f)
-                hit = Physics2D.CircleCast(origin, castRadius, dir, raycastDistance, avoidLayer);
-            else
-                hit = Physics2D.Raycast(origin, dir, raycastDistance, avoidLayer);
+            hit = Physics2D.Raycast(origin, dir, raycastDistance, avoidLayer);
 
             if (debugDraw)
             {
-                Debug.DrawRay(origin, dir * raycastDistance, hit.collider != null ? Color.red : Color.green, 0.1f);
+                Debug.DrawRay(origin, dir * raycastDistance, hit.collider != null ? Color.red : Color.green, 0.05f);
             }
 
             if (hit.collider != null)
@@ -58,10 +53,8 @@ public class SteeringBehaviour : MonoBehaviour
                 // vetor que aponta do ponto de contato para o centro (ou seja, para fora da parede)
                 Vector2 away = origin - hit.point;
                 float distanceFactor = Mathf.Clamp01((raycastDistance - hit.distance) / raycastDistance); // mais perto => maior força
-                if (away.sqrMagnitude > 0.0001f)
-                    combinedAway += away.normalized * distanceFactor;
-                else
-                    combinedAway += -dir * distanceFactor; // fallback
+                if (away.sqrMagnitude > 0.0001f) combinedAway += away.normalized * distanceFactor;
+                else combinedAway += -dir * distanceFactor; // fallback
                 found = true;
             }
         }

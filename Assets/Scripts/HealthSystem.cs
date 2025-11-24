@@ -1,9 +1,10 @@
 using UnityEngine;
 
-/**
+/** <summary>
 * Script da vida. Seta um valor de vida máximo para o objeto, com variáveis pra controlar se
 * o objeto pode tomar dano, pode morrer e se está vivo. Tem também métodos pra mudar a vida,
-* pegar, curar e dar dano.
+* pegar, curar e dar dano. É necessário alterar a função de Die(), que por padrão, deleta o gameobject do jogador.
+* </summary>
 **/
 public class HealthSystem : MonoBehaviour
 {
